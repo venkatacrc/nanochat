@@ -11,8 +11,13 @@
 # WANDB_RUN=speedrun screen -L -Logfile speedrun.log -S speedrun bash speedrun.sh
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
+# If /home has limited space (like in Kubernetes), use /emptydir or /tmp
 export OMP_NUM_THREADS=1
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
+if [ -d "/emptydir" ] && [ -w "/emptydir" ]; then
+    export NANOCHAT_BASE_DIR="/emptydir/nanochat-cache"
+else
+    export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
+fi
 mkdir -p $NANOCHAT_BASE_DIR
 
 # -----------------------------------------------------------------------------
@@ -20,6 +25,13 @@ mkdir -p $NANOCHAT_BASE_DIR
 
 # install uv (if not already installed)
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+# add uv to PATH if it was just installed
+export PATH="$HOME/.local/bin:$PATH"
+# use /emptydir for uv cache if available (avoids disk space issues)
+if [ -d "/emptydir" ] && [ -w "/emptydir" ]; then
+    export UV_CACHE_DIR="/emptydir/uv-cache"
+    mkdir -p $UV_CACHE_DIR
+fi
 # create a .venv local virtual environment (if it doesn't exist)
 [ -d ".venv" ] || uv venv
 # install the repo dependencies
@@ -49,8 +61,19 @@ python -m nanochat.report reset
 # Tokenizer
 
 # Install Rust / Cargo
+# use /emptydir for cargo/rust if available (avoids disk space issues)
+if [ -d "/emptydir" ] && [ -w "/emptydir" ]; then
+    export CARGO_HOME="/emptydir/cargo"
+    export RUSTUP_HOME="/emptydir/rustup"
+    mkdir -p $CARGO_HOME $RUSTUP_HOME
+fi
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
+if [ -n "$CARGO_HOME" ]; then
+    source "$CARGO_HOME/env"
+    export PATH="$CARGO_HOME/bin:$PATH"
+else
+    source "$HOME/.cargo/env"
+fi
 
 # Build the rustbpe Tokenizer
 uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
